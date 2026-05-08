@@ -4,8 +4,6 @@
 [![JavaScript](https://img.shields.io/badge/Language-JavaScript-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
-<!-- 🖼️ 插入图片：项目 Logo 或横幅图 (建议居中，尺寸 800x200 左右，可以直接展示脚本在浏览器中的最终状态或大标题) -->
-
 一个运行在浏览器端的 **Tampermonkey / Violentmonkey** 用户脚本。采用纯前端架构，无需配置环境，无服务器参与。一键提取学习通/超星课程中可访问的高清 PDF 课件直链，并支持将全课或单独章节课件无损打包为 ZIP 下载，为您带来绝对安全、极简的离线学习体验。
 
 ---
@@ -14,7 +12,7 @@
 
 在许多学习通课程中，教学课件（如 PPT/PDF）往往被直接嵌入在课程章节页面里，官方并未提供便捷的批量下载按钮。这给离线阅读、资料整理以及后续的知识管理带来了极大的不便。
 
-![痛点截图]()
+<img width="1920" height="1032" alt="痛点截图" src="https://github.com/user-attachments/assets/5ddb03f3-fb01-4b1e-adec-e72f70059f62" />
 
 传统的解决方案多基于后端爬虫（如 Python），不仅需要用户配置复杂的运行环境，还需要提取敏感的 Cookie，存在隐私泄露风险。同时，部分传统方案采用“截图拼接”法，导致保存的 PDF 画质受损且文字无法复制。
 
@@ -28,8 +26,8 @@
 - **🗂️ 一键智能打包**：支持按小节下载、按大章生成 ZIP、按全课生成 ZIP。ZIP 内自动生成嵌套的课程/章节目录结构，解压不凌乱。
 - **🛡️ OOM 内存防崩机制**：内置超大体积打包防崩溃机制。对于体积超大（例如 >200MB）的课件合集，脚本会智能预判并拦截，提供“**导出直链清单 (.txt)**”的安全降级方案，避免浏览器卡顿或崩溃。
 
-![前端 UI 截图](./assets/ui-screenshot.png)
-> *(💡 占位提示：在这里放一张展示脚本注入完成后的前端 UI 截图，重点标出页面上出现的“全课 PDF ZIP”、“本章 ZIP”和“PDF”三种按钮位置)*
+<img width="1920" height="1032" alt="前端 UI 截图" src="https://github.com/user-attachments/assets/5938a14f-25cf-4aeb-95d0-454836f144f0" />
+
 
 ## 📦 安装说明
 
@@ -55,8 +53,7 @@
    - 提取具体小节：点击具体课件节点右侧的 **`[PDF]`**
 5. **应对超大课件**：如果选择下载整课且总体积过大，脚本会弹出风险警告。您可以选择**继续强行打包生成 ZIP**，或者更安全地**导出直链下载清单 (.txt)**，再配合迅雷、IDM、Motrix 等第三方多线程下载工具进行批量下载。
 
-![OOM 防崩拦截弹窗截图](./assets/oom-modal-screenshot.png)
-> *(💡 占位提示：在这里放一张触发超大规模打包时的 OOM 防崩拦截弹窗截图，展示“导出直链清单”和“继续生成”的交互界面)*
+<img width="1920" height="1032" alt="OOM 防崩拦截弹窗截图" src="https://github.com/user-attachments/assets/54a388fa-1912-4b0f-91b0-fa002aa35a60" />
 
 ## 💡 适用范围与边界限制
 
