@@ -1,10 +1,12 @@
 // ==UserScript==
 // @name         学习通 PDF 抓取助手
-// @namespace    https://github.com/local/chaoxing-pdf-grabber
+// @namespace    https://github.com/Acselerator/chaoxing-pdf-grabber
 // @version      0.1.15
 // @description  在学习通课程章节页提取原始 PDF 直链，并支持小节直下、章节 STORE ZIP、全课 STORE ZIP 与超大包直链清单导出。
-// @author       local
+// @author       Acselerator
 // @license      MIT
+// @homepageURL  https://github.com/Acselerator/chaoxing-pdf-grabber
+// @supportURL   https://github.com/Acselerator/chaoxing-pdf-grabber/issues
 // @match        *://chaoxing.com/*
 // @match        *://*.chaoxing.com/*
 // @grant        GM_setValue

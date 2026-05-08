@@ -46,10 +46,8 @@ https://greasyfork.org/scripts/你的脚本编号
 
 ## 反馈
 
-发布 GitHub 仓库后，可将这里替换为 Issues 地址：
-
 ```text
-https://github.com/你的用户名/chaoxing-pdf-grabber/issues
+https://github.com/Acselerator/chaoxing-pdf-grabber/issues
 ```
 
 反馈问题时建议说明：
