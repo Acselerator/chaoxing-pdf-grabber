@@ -13,10 +13,10 @@
 
 ## 安装
 
-推荐从 Greasy Fork 安装。发布后可将这里替换为 Greasy Fork 脚本地址：
+推荐从 Greasy Fork 安装：
 
 ```text
-https://greasyfork.org/scripts/你的脚本编号
+https://greasyfork.org/zh-CN/scripts/577167-学习通-pdf-抓取助手
 ```
 
 也可以在 Tampermonkey/Violentmonkey 中新建脚本，将 `chaoxing-pdf-grabber.user.js` 的内容粘贴进去。
