@@ -1,14 +1,13 @@
 // ==UserScript==
 // @name         学习通 PDF 抓取助手
 // @namespace    https://github.com/Acselerator/chaoxing-pdf-grabber
-// @version      0.1.20
+// @version      1.0.0
 // @description  在学习通课程章节页提取原始 PDF 直链，并支持小节直下、章节 STORE ZIP、全课 STORE ZIP 与超大包直链清单导出。
 // @author       Acselerator
 // @license      MIT
 // @icon         https://raw.githubusercontent.com/Acselerator/chaoxing-pdf-grabber/main/assets/icons/icon-32.png
 // @icon64       https://raw.githubusercontent.com/Acselerator/chaoxing-pdf-grabber/main/assets/icons/icon-64.png
-// @homepageURL  https://github.com/Acselerator
-// @source       https://github.com/Acselerator/chaoxing-pdf-grabber
+// @homepage     https://github.com/Acselerator/chaoxing-pdf-grabber
 // @supportURL   https://github.com/Acselerator/chaoxing-pdf-grabber/issues
 // @match        *://mooc1.chaoxing.com/*
 // @match        *://chaoxing.com/*
@@ -22,6 +21,8 @@
 // @connect      cldisk.com
 // @connect      *.cldisk.com
 // @run-at       document-idle
+// @downloadURL https://update.greasyfork.org/scripts/577167/%E5%AD%A6%E4%B9%A0%E9%80%9A%20PDF%20%E6%8A%93%E5%8F%96%E5%8A%A9%E6%89%8B.user.js
+// @updateURL https://update.greasyfork.org/scripts/577167/%E5%AD%A6%E4%B9%A0%E9%80%9A%20PDF%20%E6%8A%93%E5%8F%96%E5%8A%A9%E6%89%8B.meta.js
 // ==/UserScript==
 
 (function () {
