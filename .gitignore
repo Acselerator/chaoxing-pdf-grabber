@@ -4,6 +4,13 @@
 提示词.md
 说明.txt
 
+# Keep public project icon assets
+!assets/
+!assets/icons/
+!assets/icons/*.png
+!assets/icons/*.svg
+!assets/icons/*.webp
+
 # Logs and temporary files
 *.log
 *.tmp
