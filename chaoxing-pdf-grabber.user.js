@@ -1,13 +1,12 @@
 // ==UserScript==
 // @name         学习通 PDF 抓取助手
 // @namespace    https://github.com/Acselerator/chaoxing-pdf-grabber
-// @version      0.1.18
+// @version      0.1.19
 // @description  在学习通课程章节页提取原始 PDF 直链，并支持小节直下、章节 STORE ZIP、全课 STORE ZIP 与超大包直链清单导出。
 // @author       Acselerator
 // @license      MIT
 // @icon         https://raw.githubusercontent.com/Acselerator/chaoxing-pdf-grabber/main/assets/icons/icon-32.png
 // @icon64       https://raw.githubusercontent.com/Acselerator/chaoxing-pdf-grabber/main/assets/icons/icon-64.png
-// @homepageURL  https://github.com/Acselerator/chaoxing-pdf-grabber
 // @supportURL   https://github.com/Acselerator/chaoxing-pdf-grabber/issues
 // @match        *://mooc1.chaoxing.com/*
 // @match        *://chaoxing.com/*
@@ -28,7 +27,7 @@
 
   const APP = "cxpg";
   const APP_NAME = "chaoxing-pdf-grabber";
-  const STYLE_VERSION = "0.1.18";
+  const STYLE_VERSION = "0.1.19";
   const ZIP_THRESHOLD_BYTES = 200 * 1024 * 1024;
   const ZIP_MAX_FILE_COUNT = 60;
   const CACHE_VERSION = 2;
