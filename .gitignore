@@ -1,0 +1,16 @@
+# Local test snapshots and private notes
+*.html
+*.png
+提示词.md
+说明.txt
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
