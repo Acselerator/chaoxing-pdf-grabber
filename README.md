@@ -65,6 +65,27 @@
 - **资源类型兼容限制**：脚本仅专注提取可被解析的 **PDF / 文档类** 资源。不保证全面支持或能够抓取视频、纯文本题库、作业附件、独立 PPT 文件等其他变体。部分特殊排版或被教师特别锁定权限的课程可能无法解析。
 - **跨域与环境限制**：生成大体积 ZIP 使用 HTML5 `Blob` 与 `JSZip` 库，极大地吃内存。极端情况下会导致当前标签页卡顿甚至崩溃，此为浏览器本身的架构瓶颈。
 
+## 🧪 测试
+
+仓库自带两层测试，不依赖任何 npm 包（Node 20+ 内置 test runner）：
+
+```bash
+# 单元测试：不需要浏览器、不需要登录，CI 里跑的就是它
+node --test test/unit.test.mjs
+
+# 端到端测试：真浏览器 + 真学习通页面 + 真 CDN，需要你自己的登录态，默认跳过
+CXPG_E2E=1 \
+CXPG_COURSE_URL='https://mooc1.chaoxing.com/mycourse/studentstudy?...' \
+node --test test/e2e.test.mjs
+```
+
+| 层级 | 覆盖内容 |
+| --- | --- |
+| 单元测试（23 项） | 文件名清理（非法字符、结尾空格与点号、Windows 保留名、超长截断）、字节校验（容差、缺失声明、gzip 跳过）、响应头解析、ZIP 体积/数量风险、**STORE ZIP 写入器自解包校验**（UTF-8 中文名标志位、CRC、条目内容逐个比对）、`yieldToBrowser` 不吃定时器节流、`extractKnowledgeId` 多种写法、`mapLimit` 并发与顺序、`normalizeTree` 去重 |
+| 端到端测试 | 在 `:99` 虚拟屏上起真实浏览器，注入脚本后点「全课 PDF ZIP」，断言：工具栏挂载成功、进度面板终态为「已完成」、下载目录里出现 ZIP、ZIP 每个条目都是合法 PDF（`%PDF` 魔数）、设置面板版本与脚本头一致、「接口自检」返回 `OK …`、页面无未捕获异常 |
+
+端到端测试只用环境变量传课程地址，**不会把任何课程 ID 写进仓库**；它支持 `CXPG_BROWSER`、`CXPG_DISPLAY`、`CXPG_CDP_PORT`、`CXPG_PROFILE_SRC`、`CXPG_DOWNLOAD_DIR` 覆盖默认值，收尾只关自己起的浏览器，`Xvfb :99` 不关。
+
 ## 🧾 更新日志
 
 ### 1.1.0
