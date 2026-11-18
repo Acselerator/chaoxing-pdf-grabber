@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 PDF 抓取助手
 // @namespace    https://github.com/Acselerator/chaoxing-pdf-grabber
-// @version      1.0.0
+// @version      1.0.1
 // @description  在学习通课程章节页提取原始 PDF 直链，并支持小节直下、章节 STORE ZIP、全课 STORE ZIP 与超大包直链清单导出。
 // @author       Acselerator
 // @license      MIT
@@ -16,6 +16,7 @@
 // @grant        GM_getValue
 // @grant        GM_addStyle
 // @grant        GM_xmlhttpRequest
+// @grant        GM_download
 // @connect      chaoxing.com
 // @connect      *.chaoxing.com
 // @connect      cldisk.com
@@ -30,7 +31,7 @@
 
   const APP = "cxpg";
   const APP_NAME = "chaoxing-pdf-grabber";
-  const STYLE_VERSION = "0.1.20";
+  const STYLE_VERSION = "0.1.21";
   const ZIP_THRESHOLD_BYTES = 200 * 1024 * 1024;
   const ZIP_MAX_FILE_COUNT = 60;
   const CACHE_VERSION = 2;
@@ -668,7 +669,14 @@
     event.stopPropagation();
   }
 
+  let zipInFlight = false;
+
   async function handleZipDownload(doc, scopeType, chapterId, button) {
+    if (zipInFlight) {
+      showToast(doc, "已经有一个 ZIP 正在生成，等它完成再点。", "info", 4000);
+      return;
+    }
+    zipInFlight = true;
     const restore = setButtonBusy(button, "解析中");
     let progressPanel = null;
     try {
@@ -795,6 +803,7 @@
       }
       showToast(doc, `下载失败：${getErrorMessage(error)}`, "error", 6000);
     } finally {
+      zipInFlight = false;
       restore();
       if (progressPanel) progressPanel.close(1800);
     }
@@ -1754,8 +1763,19 @@
     return (crc ^ 0xffffffff) >>> 0;
   }
 
+  // 让出主线程。隐藏标签页里 setTimeout 会被 Chrome 节流到 1s/1min 级，
+  // 大 ZIP 逐条写入时就会「卡在 压缩生成 N/M」十几分钟；MessageChannel 不受该节流影响。
+  const yieldQueue = [];
+  const yieldChannel = new MessageChannel();
+  yieldChannel.port1.onmessage = () => {
+    const next = yieldQueue.shift();
+    if (next) next();
+  };
   function yieldToBrowser() {
-    return new Promise((resolve) => setTimeout(resolve, 0));
+    return new Promise((resolve) => {
+      yieldQueue.push(resolve);
+      yieldChannel.port2.postMessage(0);
+    });
   }
 
   function getZipRisk(records, totalBytes) {
@@ -1860,18 +1880,65 @@
     return candidate;
   }
 
-  function triggerBlobDownload(doc, blob, filename) {
-    const url = URL.createObjectURL(blob);
+  function anchorDownload(doc, url, filename) {
     const anchor = doc.createElement("a");
     anchor.href = url;
     anchor.download = filename;
     anchor.style.display = "none";
     doc.body.appendChild(anchor);
     anchor.click();
+    // 立刻 remove/revoke 会让 Chrome 尚未启动的 blob 下载被静默取消，延迟回收
     setTimeout(() => {
-      URL.revokeObjectURL(url);
-      anchor.remove();
-    }, 1000);
+      try {
+        anchor.remove();
+      } catch (_) {}
+    }, 120000);
+  }
+
+  function triggerBlobDownload(doc, blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const revokeLater = (ms) => {
+      setTimeout(() => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (_) {}
+      }, ms);
+    };
+
+    if (typeof GM_download === "function") {
+      let settled = false;
+      const fallback = (reason) => {
+        if (settled) return;
+        settled = true;
+        console.warn(`[${APP_NAME}] GM_download 失败(${reason})，改用 <a download>`);
+        anchorDownload(doc, url, filename);
+      };
+      try {
+        GM_download({
+          url,
+          name: filename,
+          saveAs: false,
+          onload: () => {
+            settled = true;
+            console.log(`[${APP_NAME}] GM_download 完成：${filename}`);
+          },
+          onerror: (error) => fallback((error && error.error) || "error"),
+          ontimeout: () => fallback("timeout"),
+        });
+        // 15 秒还没任何回调，说明脚本管理器不支持 blob URL，退回 <a download>
+        setTimeout(() => {
+          if (!settled) fallback("no-callback");
+        }, 15000);
+        revokeLater(10 * 60 * 1000);
+        return;
+      } catch (error) {
+        fallback(String(error));
+        return;
+      }
+    }
+
+    anchorDownload(doc, url, filename);
+    revokeLater(60000);
   }
 
   function renderOomModal(doc, options) {
@@ -1983,6 +2050,7 @@
     const old = doc.getElementById(`${APP}-progress`);
     if (old) old.remove();
 
+    const startedAt = Date.now();
     const panel = doc.createElement("div");
     panel.id = `${APP}-progress`;
     panel.className = "cxpg-progress";
@@ -2014,8 +2082,9 @@
         const total = Math.max(Number(state.total) || 0, 0);
         const current = Math.max(Number(state.current) || 0, 0);
         const percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+        const elapsed = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
         stageNode.textContent = state.stage || "处理中";
-        countNode.textContent = total > 0 ? `${current}/${total}` : `${percent}%`;
+        countNode.textContent = (total > 0 ? `${current}/${total}` : `${percent}%`) + ` · ${elapsed}s`;
         barNode.style.width = `${percent}%`;
         detailNode.textContent = state.detail || "";
       },
