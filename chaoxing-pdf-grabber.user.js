@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 PDF 抓取助手
 // @namespace    https://github.com/Acselerator/chaoxing-pdf-grabber
-// @version      1.0.1
+// @version      1.1.0
 // @description  在学习通课程章节页提取原始 PDF 直链，并支持小节直下、章节 STORE ZIP、全课 STORE ZIP 与超大包直链清单导出。
 // @author       Acselerator
 // @license      MIT
@@ -16,7 +16,8 @@
 // @grant        GM_getValue
 // @grant        GM_addStyle
 // @grant        GM_xmlhttpRequest
-// @grant        GM_download
+// @grant        GM_deleteValue
+// @grant        GM_listValues
 // @connect      chaoxing.com
 // @connect      *.chaoxing.com
 // @connect      cldisk.com
@@ -31,6 +32,8 @@
 
   const APP = "cxpg";
   const APP_NAME = "chaoxing-pdf-grabber";
+  // 与脚本头 @version 保持一致（发布前一起改）
+  const APP_VERSION = "1.1.0";
   const STYLE_VERSION = "0.1.21";
   const ZIP_THRESHOLD_BYTES = 200 * 1024 * 1024;
   const ZIP_MAX_FILE_COUNT = 60;
@@ -207,6 +210,36 @@
     }
     .cxpg-toast-success {
       background: rgba(25, 119, 82, .96);
+    }
+    .cxpg-toast-warn {
+      background: rgba(154, 96, 12, .96);
+    }
+    .cxpg-set-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid #eef1f6;
+    }
+    .cxpg-set-row:last-child {
+      border-bottom: 0;
+    }
+    .cxpg-set-label {
+      color: #111827;
+      font-weight: 600;
+    }
+    .cxpg-set-value {
+      color: #4b5563;
+      font-size: 13px;
+      text-align: right;
+      white-space: pre-line;
+    }
+    .cxpg-set-note {
+      margin-top: 10px;
+      color: #6b7280;
+      font-size: 12px;
+      line-height: 1.6;
     }
     .cxpg-progress {
       position: fixed;
@@ -539,6 +572,7 @@
       });
       toolbar.appendChild(allButton);
     }
+    ensureSettingsButton(doc, toolbar);
 
     for (const chapter of tree.chapters) {
       if (!chapter.domNode) continue;
@@ -576,6 +610,7 @@
       handleZipDownload(doc, "course", null, allButton);
     });
     toolbar.appendChild(allButton);
+    ensureSettingsButton(doc, toolbar);
 
     const anchor =
       doc.querySelector(".chapter, .chapterList, .courseChapter, #chapter, #chapterList, main, body") ||
@@ -1583,6 +1618,7 @@
     const entries = [];
     const usedPaths = new Set();
     let completed = 0;
+    downloadIssues.reset();
 
     await mapLimit(records, ZIP_FETCH_CONCURRENCY, async (record) => {
       progress({
@@ -1591,13 +1627,22 @@
         total: records.length,
         detail: record.linkPath,
       });
-      const arrayBuffer = await fetchPdfArrayBuffer(record.pdf);
-      const zipPath = makeUniquePath(record.zipParts, usedPaths);
-      entries.push({
-        path: zipPath,
-        data: new Uint8Array(arrayBuffer),
-        date: new Date(),
-      });
+      try {
+        const arrayBuffer = await fetchPdfArrayBuffer(record.pdf, record);
+        const zipPath = makeUniquePath(record.zipParts, usedPaths);
+        entries.push({
+          path: zipPath,
+          data: new Uint8Array(arrayBuffer),
+          date: new Date(),
+        });
+      } catch (error) {
+        // 一个 PDF 失败不应该让整包失败：记下来，最后汇报并给出直链。
+        console.warn(`[${APP_NAME}] PDF 下载失败，已跳过：${record.linkPath}`, error);
+        downloadIssues.failed.push({
+          ...record,
+          error: getErrorMessage(error),
+        });
+      }
       completed += 1;
       progress({
         stage: "下载 PDF",
@@ -1606,6 +1651,14 @@
         detail: record.linkPath,
       });
     });
+
+    if (!entries.length) {
+      throw new Error(
+        downloadIssues.failed.length
+          ? `全部 ${downloadIssues.failed.length} 个 PDF 都下载失败，可能是登录过期或资源被移除。`
+          : "没有可写入 ZIP 的 PDF 文件。",
+      );
+    }
 
     progress({
       stage: "压缩生成",
@@ -1623,6 +1676,29 @@
     });
 
     triggerBlobDownload(doc, zipBlob, sanitizeFileName(zipName));
+    reportDownloadIssues(doc);
+  }
+
+  // 把跳过/异常条目说清楚。这里刻意不再自动导出「失败清单」：
+  // 浏览器对同一次点击里的第二个下载会直接丢弃，自动导出反而会顶掉刚生成好的包。
+  function reportDownloadIssues(doc) {
+    const { failed, mismatched } = downloadIssues;
+    if (!failed.length && !mismatched.length) return;
+
+    const parts = [];
+    if (failed.length) parts.push(`${failed.length} 个 PDF 下载失败已跳过`);
+    if (mismatched.length) parts.push(`${mismatched.length} 个文件传输字节数不符`);
+    showToast(doc, `${parts.join("，")}。失败直链见控制台。`, "warn", 9000);
+
+    if (failed.length) {
+      console.warn(`[${APP_NAME}] 以下 ${failed.length} 个 PDF 没有下载成功，可复制直链用下载器补：`);
+      for (const item of failed) {
+        console.warn(`  ${item.linkPath}\n    ${item.pdf}\n    ${item.error || ""}`);
+      }
+    }
+    if (mismatched.length) {
+      console.warn(`[${APP_NAME}] 以下文件传输字节数与声明不一致：`, mismatched);
+    }
   }
 
   async function createStoredZipBlob(entries, onProgress) {
@@ -1796,20 +1872,82 @@
     return { blocked: false, reason: "" };
   }
 
-  async function fetchPdfArrayBuffer(url) {
-    try {
-      const response = await fetchWithTimeout(url, {
-        credentials: "omit",
-      }, 120000);
-      if (response.ok) return await response.arrayBuffer();
-    } catch (_) {
-      // Fall back to Tampermonkey's cross-origin request below.
+  // 下载过程中的问题收集起来，最后一次性告诉用户，而不是静默丢掉。
+  const downloadIssues = {
+    failed: [],
+    mismatched: [],
+    reset() {
+      this.failed = [];
+      this.mismatched = [];
+    },
+  };
+
+  async function fetchPdfArrayBuffer(url, record) {
+    let lastError = null;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        const response = await fetchWithTimeout(url, {
+          credentials: "omit",
+        }, 120000);
+        if (response.ok) {
+          const buffer = await response.arrayBuffer();
+          verifyTransferSize(record, buffer.byteLength, response.headers.get("content-length"), response.headers.get("content-encoding"));
+          return buffer;
+        }
+        lastError = new Error(`HTTP ${response.status}`);
+      } catch (error) {
+        lastError = error;
+      }
+
+      try {
+        const { buffer, headers } = await gmFetchArrayBufferWithHeaders(url);
+        verifyTransferSize(record, buffer.byteLength, headers["content-length"], headers["content-encoding"]);
+        return buffer;
+      } catch (error) {
+        lastError = error;
+      }
+
+      if (attempt < 2) await sleep(1200);
     }
 
-    return gmFetchArrayBuffer(url);
+    throw lastError || new Error("PDF 下载失败");
+  }
+
+  // 注意：/ananas/status 里的 length 是**原始附件**（.pptx 源文件）的大小，
+  // 不是转码后 PDF 的大小，拿它校验 PDF 必然误报。这里只比对同一份响应的
+  // Content-Length 与实收字节数，用来抓「传输被截断」这一种情况。
+  function verifyTransferSize(record, actualBytes, declaredRaw, encoding) {
+    const declared = Number(declaredRaw) || 0;
+    if (!declared || !actualBytes) return;
+    if (encoding && encoding !== "identity") return; // 压缩响应的长度和实收字节不可比
+    const tolerance = Math.max(64, declared * 0.001);
+    if (Math.abs(actualBytes - declared) <= tolerance) return;
+    console.warn(`[${APP_NAME}] 下载字节数与响应声明不一致：${record?.linkPath || record?.pdf || ""}`, {
+      actual: actualBytes,
+      declared,
+    });
+    downloadIssues.mismatched.push({
+      label: record?.linkPath || record?.filename || record?.pdf || "",
+      actual: actualBytes,
+      expected: declared,
+    });
   }
 
   function gmFetchArrayBuffer(url) {
+    return gmFetchArrayBufferWithHeaders(url).then((result) => result.buffer);
+  }
+
+  function parseResponseHeaders(rawHeaders) {
+    const headers = {};
+    for (const line of String(rawHeaders || "").split(/\r?\n/)) {
+      const index = line.indexOf(":");
+      if (index <= 0) continue;
+      headers[line.slice(0, index).trim().toLowerCase()] = line.slice(index + 1).trim();
+    }
+    return headers;
+  }
+
+  function gmFetchArrayBufferWithHeaders(url) {
     return new Promise((resolve, reject) => {
       if (typeof GM_xmlhttpRequest !== "function") {
         reject(new Error("PDF 跨域下载失败，且 GM_xmlhttpRequest 不可用。"));
@@ -1823,7 +1961,10 @@
         timeout: 120000,
         onload(response) {
           if (response.status >= 200 && response.status < 300 && response.response) {
-            resolve(response.response);
+            resolve({
+              buffer: response.response,
+              headers: parseResponseHeaders(response.responseHeaders),
+            });
           } else {
             reject(new Error(`PDF 下载失败 ${response.status}`));
           }
@@ -1838,13 +1979,9 @@
     });
   }
 
-  async function fetchPdfBlob(url) {
-    const arrayBuffer = await fetchPdfArrayBuffer(url);
-    return new Blob([arrayBuffer], { type: "application/pdf" });
-  }
-
   async function downloadDirectPdfs(doc, records, progress) {
     const usedNames = new Set();
+    downloadIssues.reset();
     for (const [index, record] of records.entries()) {
       progress({
         stage: "下载 PDF",
@@ -1852,9 +1989,15 @@
         total: records.length,
         detail: record.linkPath,
       });
-      const blob = await fetchPdfBlob(record.pdf);
-      const filename = makeUniqueFileName(record.filename, usedNames);
-      triggerBlobDownload(doc, blob, filename);
+      try {
+        const arrayBuffer = await fetchPdfArrayBuffer(record.pdf, record);
+        const blob = new Blob([arrayBuffer], { type: "application/pdf" });
+        const filename = makeUniqueFileName(record.filename, usedNames);
+        triggerBlobDownload(doc, blob, filename);
+      } catch (error) {
+        console.warn(`[${APP_NAME}] PDF 下载失败，已跳过：${record.linkPath}`, error);
+        downloadIssues.failed.push({ ...record, error: getErrorMessage(error) });
+      }
       progress({
         stage: "下载 PDF",
         current: index + 1,
@@ -1863,6 +2006,7 @@
       });
       if (index < records.length - 1) await sleep(DIRECT_DOWNLOAD_DELAY_MS);
     }
+    reportDownloadIssues(doc);
   }
 
   function makeUniqueFileName(filename, usedNames) {
@@ -1895,50 +2039,195 @@
     }, 120000);
   }
 
+  // 下载：统一走 <a download>。
+  // 实测：ScriptCat 1.5.2 的 GM_download 对 blob: URL 既不产生下载事件也不回 onload/onerror，
+  // 用它当主路径会让「ZIP 已经生成好」之后什么都没有落盘；再加上「N 秒无回调就退回」的计时器，
+  // 同一份文件还会下两遍。所以这里只保留浏览器原生下载，关键是别过早 revokeObjectURL。
   function triggerBlobDownload(doc, blob, filename) {
     const url = URL.createObjectURL(blob);
-    const revokeLater = (ms) => {
-      setTimeout(() => {
-        try {
-          URL.revokeObjectURL(url);
-        } catch (_) {}
-      }, ms);
-    };
-
-    if (typeof GM_download === "function") {
-      let settled = false;
-      const fallback = (reason) => {
-        if (settled) return;
-        settled = true;
-        console.warn(`[${APP_NAME}] GM_download 失败(${reason})，改用 <a download>`);
-        anchorDownload(doc, url, filename);
-      };
+    anchorDownload(doc, url, filename);
+    setTimeout(() => {
       try {
-        GM_download({
-          url,
-          name: filename,
-          saveAs: false,
-          onload: () => {
-            settled = true;
-            console.log(`[${APP_NAME}] GM_download 完成：${filename}`);
-          },
-          onerror: (error) => fallback((error && error.error) || "error"),
-          ontimeout: () => fallback("timeout"),
-        });
-        // 15 秒还没任何回调，说明脚本管理器不支持 blob URL，退回 <a download>
-        setTimeout(() => {
-          if (!settled) fallback("no-callback");
-        }, 15000);
-        revokeLater(10 * 60 * 1000);
-        return;
-      } catch (error) {
-        fallback(String(error));
-        return;
+        URL.revokeObjectURL(url);
+      } catch (_) {}
+    }, 60000);
+  }
+
+  function ensureSettingsButton(doc, toolbar) {
+    if (toolbar.querySelector(":scope > [data-cxpg-action='settings']")) return;
+    const button = createButton(doc, "设置", "cxpg-btn cxpg-btn-secondary cxpg-btn-small");
+    button.dataset.cxpgAction = "settings";
+    // 这里不走 bindButtonClick：那个会先弹一句「已收到点击」，对设置面板太吵。
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openSettingsPanel(doc);
+    });
+    toolbar.appendChild(button);
+  }
+
+  async function listMetadataCacheKeys() {
+    const prefix = `${APP_NAME}:metadata:`;
+    try {
+      if (typeof GM_listValues === "function") {
+        const keys = await GM_listValues();
+        if (Array.isArray(keys)) return keys.filter((key) => typeof key === "string" && key.startsWith(prefix));
       }
+    } catch (error) {
+      console.warn(`[${APP_NAME}] GM_listValues 不可用`, error);
     }
 
-    anchorDownload(doc, url, filename);
-    revokeLater(60000);
+    const keys = [];
+    try {
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (key && key.startsWith(prefix)) keys.push(key);
+      }
+    } catch (_) {
+      // 隐私模式下 localStorage 可能不可读，忽略即可。
+    }
+    return keys;
+  }
+
+  async function clearMetadataCache() {
+    const keys = await listMetadataCacheKeys();
+    for (const key of keys) {
+      try {
+        if (typeof GM_deleteValue === "function") await GM_deleteValue(key);
+        else localStorage.removeItem(key);
+      } catch (error) {
+        console.warn(`[${APP_NAME}] 删除缓存失败 ${key}`, error);
+      }
+    }
+    return keys.length;
+  }
+
+  async function runInterfaceSelfCheck(doc, node) {
+    node.textContent = "运行中…";
+    const started = Date.now();
+    try {
+      const tree = buildCourseTree(doc);
+      if (!tree || !tree.sections.length) throw new Error("当前页面没有识别到章节目录");
+
+      // 一个课程里前几个小节常常是「课程说明」这类没有课件的小节，
+      // 所以往后多试几个，直到解析出 PDF 为止。
+      const candidates = tree.sections.slice(0, 6);
+      // 自检要跑真实接口，先把这些候选小节的缓存摘掉，避免直接读到旧数据。
+      const cache = await readMetadataCache(tree.courseKey);
+      for (const section of candidates) delete cache.sections[section.id];
+      await writeMetadataCache(tree.courseKey, cache);
+
+      const emptySections = [];
+      for (const section of candidates) {
+        const records = await collectPdfRecords(doc, tree, [section], () => {});
+        if (!records.length) {
+          emptySections.push(section.displayName || section.title || section.id);
+          continue;
+        }
+        const elapsed = Date.now() - started;
+        const total = records.reduce((sum, record) => sum + (Number(record.length) || 0), 0);
+        const skipped = emptySections.length ? `（跳过 ${emptySections.length} 个无课件小节）` : "";
+        node.textContent = `OK ${elapsed}ms · ${records.length} 个 PDF · ${formatBytes(total)}${skipped}`;
+        return true;
+      }
+
+      throw new Error(`前 ${candidates.length} 个小节都没有解析到 PDF，可能是登录过期或该课程本章无课件`);
+    } catch (error) {
+      node.textContent = `失败：${getErrorMessage(error)}`;
+      console.warn(`[${APP_NAME}] Self check failed`, error);
+      return false;
+    }
+  }
+
+  function openSettingsPanel(doc) {
+    const old = doc.getElementById(`${APP}-settings-modal`);
+    if (old) old.remove();
+
+    const backdrop = doc.createElement("div");
+    backdrop.id = `${APP}-settings-modal`;
+    backdrop.className = "cxpg-modal-backdrop";
+    backdrop.innerHTML = `
+      <div class="cxpg-modal" role="dialog" aria-modal="true" aria-labelledby="cxpg-set-title">
+        <button type="button" class="cxpg-modal-close" aria-label="关闭">×</button>
+        <div class="cxpg-modal-header">
+          <span class="cxpg-modal-icon" aria-hidden="true">i</span>
+          <h2 class="cxpg-modal-title" id="cxpg-set-title">设置与自检</h2>
+        </div>
+        <div class="cxpg-modal-body">
+          <div class="cxpg-set-row">
+            <span class="cxpg-set-label">版本</span>
+            <span class="cxpg-set-value">${escapeHtml(APP_VERSION)}</span>
+          </div>
+          <div class="cxpg-set-row">
+            <span class="cxpg-set-label">识别结果</span>
+            <span class="cxpg-set-value" data-role="tree">识别中…</span>
+          </div>
+          <div class="cxpg-set-row">
+            <span class="cxpg-set-label">元数据缓存</span>
+            <span class="cxpg-set-value" data-role="cache">统计中…</span>
+            <button type="button" class="cxpg-btn cxpg-btn-secondary cxpg-btn-small" data-action="clear-cache">清空</button>
+          </div>
+          <div class="cxpg-set-row">
+            <span class="cxpg-set-label">下载能力</span>
+            <span class="cxpg-set-value" data-role="env">检测中…</span>
+          </div>
+          <div class="cxpg-set-row">
+            <span class="cxpg-set-label">接口自检</span>
+            <span class="cxpg-set-value" data-role="check">未运行</span>
+            <button type="button" class="cxpg-btn cxpg-btn-small" data-action="check">运行</button>
+          </div>
+          <div class="cxpg-set-note">
+            自检会对第一个小节跑一次真实解析（含 /ananas/status 请求），正常耗时 1–5 秒，可用来判断「解析完没反应」是接口问题还是下载问题。
+          </div>
+        </div>
+        <div class="cxpg-modal-footer">
+          <button type="button" class="cxpg-btn cxpg-btn-secondary" data-action="close">关闭</button>
+        </div>
+      </div>
+    `;
+
+    const close = () => backdrop.remove();
+    backdrop.addEventListener("click", (event) => {
+      if (event.target === backdrop) close();
+    });
+    backdrop.querySelector(".cxpg-modal-close").addEventListener("click", close);
+    backdrop.querySelector("[data-action='close']").addEventListener("click", close);
+
+    const treeNode = backdrop.querySelector("[data-role='tree']");
+    const cacheNode = backdrop.querySelector("[data-role='cache']");
+    const envNode = backdrop.querySelector("[data-role='env']");
+    const checkNode = backdrop.querySelector("[data-role='check']");
+
+    try {
+      const tree = buildCourseTree(doc);
+      treeNode.textContent = tree && tree.sections.length
+        ? `${tree.courseName || "未命名课程"}\n${tree.chapters.length} 章 · ${tree.sections.length} 个小节`
+        : "未识别到章节目录";
+    } catch (error) {
+      treeNode.textContent = `识别失败：${getErrorMessage(error)}`;
+    }
+
+    envNode.textContent = [
+      "下载：浏览器原生 <a download>",
+      typeof GM_xmlhttpRequest === "function" ? "跨域：GM_xmlhttpRequest" : "跨域：仅 fetch",
+    ].join("\n");
+
+    void (async () => {
+      const keys = await listMetadataCacheKeys();
+      cacheNode.textContent = `${keys.length} 门课程`;
+    })();
+
+    backdrop.querySelector("[data-action='clear-cache']").addEventListener("click", async () => {
+      const removed = await clearMetadataCache();
+      cacheNode.textContent = "0 门课程";
+      showToast(doc, `已清空 ${removed} 门课程的元数据缓存。`, "success", 3000);
+    });
+
+    backdrop.querySelector("[data-action='check']").addEventListener("click", () => {
+      void runInterfaceSelfCheck(doc, checkNode);
+    });
+
+    doc.body.appendChild(backdrop);
   }
 
   function renderOomModal(doc, options) {
@@ -2262,12 +2551,16 @@
   }
 
   function sanitizeFileName(value) {
-    const cleaned = String(value || "未命名")
+    let cleaned = String(value || "未命名")
       .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
       .replace(/\s+/g, " ")
       .replace(/[. ]+$/g, "")
       .trim();
-    return (cleaned || "未命名").slice(0, 120);
+    if (!cleaned) cleaned = "未命名";
+    // Windows 不允许把保留名当文件名（CON、NUL、COM1…），前缀下划线避开。
+    // 正则内联写在这里：模块级 const 在 IIFE 靠后的位置声明，初始化阶段调用会撞上 TDZ。
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(cleaned)) cleaned = `_${cleaned}`;
+    return cleaned.slice(0, 120);
   }
 
   function ensurePdfExtension(filename) {
